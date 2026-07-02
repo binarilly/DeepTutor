@@ -7,6 +7,7 @@ import {
   citationAnchorIdFor,
   markdownUrlTransform,
   normalizeMarkdownForDisplay,
+  safeDecodeURIComponent,
 } from "@/lib/markdown-display";
 import {
   InlineFileCard,
@@ -365,7 +366,7 @@ export default function SimpleMarkdownRenderer({
             id && citationAnchorIdFor(id)
               ? citationAnchorIdFor(id)
               : href?.startsWith("#")
-                ? decodeURIComponent(href.slice(1))
+                ? safeDecodeURIComponent(href.slice(1))
                 : "references";
           const target =
             document.getElementById(hashTarget || "") ??
@@ -425,7 +426,7 @@ export default function SimpleMarkdownRenderer({
             if (!isHashLink || !href) return;
 
             event.preventDefault();
-            const targetId = decodeURIComponent(href.slice(1));
+            const targetId = safeDecodeURIComponent(href.slice(1));
             const target = document.getElementById(targetId);
             target?.scrollIntoView({ block: "start", behavior: "smooth" });
           }}

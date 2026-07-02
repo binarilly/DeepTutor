@@ -16,6 +16,7 @@ import {
   escapeUnknownHtmlTagsForDisplay,
   markdownUrlTransform,
   normalizeMarkdownForDisplay,
+  safeDecodeURIComponent,
 } from "@/lib/markdown-display";
 import {
   InlineFileCard,
@@ -584,7 +585,7 @@ export default function RichMarkdownRenderer({
             id && citationAnchorIdFor(id)
               ? citationAnchorIdFor(id)
               : href?.startsWith("#")
-                ? decodeURIComponent(href.slice(1))
+                ? safeDecodeURIComponent(href.slice(1))
                 : "references";
           const target =
             document.getElementById(hashTarget || "") ??
@@ -644,7 +645,7 @@ export default function RichMarkdownRenderer({
             if (!isHashLink || !href) return;
 
             event.preventDefault();
-            const targetId = decodeURIComponent(href.slice(1));
+            const targetId = safeDecodeURIComponent(href.slice(1));
             const target = document.getElementById(targetId);
             if (target) scrollAnchorIntoView(target);
           }}
