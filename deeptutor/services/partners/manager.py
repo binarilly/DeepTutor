@@ -111,7 +111,9 @@ def _slugify_id(name: str, *, fallback: str) -> str:
         return slug
     if not stripped:
         return fallback
-    digest = hashlib.sha1(stripped.encode("utf-8")).hexdigest()[:8]
+    # SHA1 here is a content-addressing handle (stable per-name id), not
+    # security; ``usedforsecurity=False`` documents that and clears bandit B324.
+    digest = hashlib.sha1(stripped.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
     return f"{fallback}-{digest}"
 
 
