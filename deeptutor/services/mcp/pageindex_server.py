@@ -16,11 +16,6 @@ from deeptutor.services.mcp.config import MCPConfig, MCPServerConfig
 
 PAGEINDEX_SERVER_NAME = "pageindex"
 
-# remove_document is the one api-proxy tool DeepTutor blocks: an agent
-# deleting a cloud doc would silently orphan the doc_ids in the local KB
-# manifest. Everything else the server advertises passes through.
-_BLOCKED_TOOLS = ["remove_document"]
-
 
 def builtin_pageindex_server() -> MCPServerConfig | None:
     """The injected server entry, or ``None`` when no API key is configured."""
@@ -35,7 +30,10 @@ def builtin_pageindex_server() -> MCPServerConfig | None:
         url=cfg.api_base_url.rstrip("/") + "/mcp",
         headers={"Authorization": f"Bearer {cfg.api_key}"},
         tool_timeout=120,
-        disabled_tools=list(_BLOCKED_TOOLS),
+        # remove_document is the one api-proxy tool DeepTutor blocks: an agent
+        # deleting a cloud doc would silently orphan the doc_ids in the local
+        # KB manifest. Everything else the server advertises passes through.
+        disabled_tools=["remove_document"],
     )
 
 

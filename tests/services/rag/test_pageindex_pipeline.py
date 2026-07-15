@@ -1,8 +1,8 @@
 """Unit tests for the PageIndex cloud RAG pipeline + provider routing.
 
 The pipeline talks to PageIndex's REST API through an injectable client, so we
-exercise the orchestration (file filtering, manifest, mcp_only search contract,
-delete) against a fake client without any network calls. Retrieval itself is
+exercise the orchestration (file filtering, manifest, outline search contract,
+delete) against a fake client without any network calls. Deep retrieval is
 agentic via the PageIndex MCP server and out of scope here.
 """
 

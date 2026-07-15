@@ -468,19 +468,19 @@ class AgenticChatPipeline:
             # are also preloaded (no load_tools round-trip) so retrieval
             # works on the first turn.
             self._pageindex_docs = self._pageindex_doc_maps(context)
+            pool = self.registry.deferred_tools()
             pageindex_tools: set[str] = set()
             if self._pageindex_docs:
                 from deeptutor.services.mcp.pageindex_server import PAGEINDEX_SERVER_NAME
 
                 pageindex_tools = {
                     t.get_definition().name
-                    for t in self.registry.deferred_tools()
+                    for t in pool
                     if getattr(t, "server_name", "") == PAGEINDEX_SERVER_NAME
                 }
                 if allowed is not None:
                     allowed = allowed | pageindex_tools
 
-            pool = self.registry.deferred_tools()
             if allowed is not None:
                 pool = [t for t in pool if t.get_definition().name in allowed]
             self._deferred_pool = pool
@@ -1280,19 +1280,19 @@ class AgenticChatPipeline:
             return ""
         if not self._selected_kbs(context):
             return ""
-        parts: list[str] = []
+        rag_note = ""
         rag_kbs = self._rag_kbs(context)
         if rag_kbs:
             joined = ", ".join(rag_kbs)
-            if self.language == "zh":
-                parts.append(f"用户已挂载知识库：{joined}。调用 rag 时，kb_name 必须从其中选一个。")
-            else:
-                parts.append(
+            rag_note = (
+                f"用户已挂载知识库：{joined}。调用 rag 时，kb_name 必须从其中选一个。"
+                if self.language == "zh"
+                else (
                     f"Attached knowledge bases: {joined}. When calling rag, kb_name "
                     "must be one of these names."
                 )
-        parts.append(self._pageindex_system_note())
-        return "".join(parts)
+            )
+        return rag_note + self._pageindex_system_note()
 
     def _pageindex_system_note(self) -> str:
         """Doc list + retrieval instructions for attached PageIndex KBs.

@@ -167,11 +167,9 @@ class PageIndexPipeline:
         programmatic callers this returns the documents' real structure as
         context — shallow but honest grounding.
         """
-        kb_dir = resolve_kb_dir(self.kb_base_dir, kb_name)
-        storage_dir = resolve_storage_dir_for_read(kb_dir, None)
         docs = self.document_map(kb_name)
 
-        if storage_dir is None or not docs:
+        if not docs:
             return {
                 "query": query,
                 "answer": (
@@ -279,8 +277,7 @@ class PageIndexPipeline:
     def document_map(self, kb_name: str) -> dict[str, str]:
         """file name -> cloud doc_id for the KB's current manifest.
 
-        Used by the chat layer to inject the doc list into the system prompt,
-        and embedded in the ``mcp_only`` search result.
+        Used by the chat layer to inject the doc list into the system prompt.
         """
         kb_dir = resolve_kb_dir(self.kb_base_dir, kb_name)
         manifest = storage.read_manifest(resolve_storage_dir_for_read(kb_dir, None))
