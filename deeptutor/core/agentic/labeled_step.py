@@ -44,7 +44,11 @@ from deeptutor.core.agentic.labels import (
     classify_label,
     strip_label_probe_prefix,
 )
-from deeptutor.core.agentic.usage import UsageTracker
+from deeptutor.core.agentic.usage import (
+    UsageTracker,
+    message_content_chars,
+    record_streamed_usage,
+)
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import merge_trace_metadata
 from deeptutor.services.llm import clean_thinking_tags
@@ -95,34 +99,6 @@ class LabeledStepResult:
     label: str  # one of allowed_labels, or LABEL_UNKNOWN on protocol failure
     text: str  # post-label content with provider <think> tags cleaned
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
-
-
-class _UsageShim:
-    """Adapt streaming ``CompletionUsage`` to the shape ``UsageTracker`` wants."""
-
-    def __init__(self, raw: Any) -> None:
-        self.usage = raw
-
-
-def _message_content_chars(message: dict[str, Any]) -> int:
-    """Best-effort character count for usage fallback estimates."""
-    content = message.get("content")
-    if isinstance(content, str):
-        return len(content)
-    if isinstance(content, list):
-        total = 0
-        for part in content:
-            if isinstance(part, dict):
-                if part.get("type") == "text":
-                    total += len(str(part.get("text") or ""))
-                elif "text" in part:
-                    total += len(str(part.get("text") or ""))
-            elif isinstance(part, str):
-                total += len(part)
-        return total
-    if content is None:
-        return 0
-    return len(str(content))
 
 
 async def run_labeled_step(
@@ -561,15 +537,12 @@ async def run_labeled_step(
             await _emit_text(label_buf)
             label_buf = ""
 
-    if usage_seen is not None and usage is not None:
-        usage.add_from_response(_UsageShim(usage_seen))
-    elif usage is not None:
-        input_chars = sum(_message_content_chars(message) for message in messages)
-        if input_chars or output_chars_seen:
-            usage.add_estimated(
-                input_chars=input_chars,
-                output_chars=output_chars_seen,
-            )
+    record_streamed_usage(
+        usage,
+        usage_seen,
+        input_chars=sum(message_content_chars(message) for message in messages),
+        output_chars=output_chars_seen,
+    )
 
     if sub_trace_opened:
         await stream.progress(

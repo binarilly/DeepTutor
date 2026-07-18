@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from deeptutor.agents._shared.capability_result import emit_capability_result
 from deeptutor.core.agentic.messages import assistant_message_with_tool_calls
 from deeptutor.core.agentic.tool_dispatch import DispatchOutcome
+from deeptutor.core.agentic.usage import message_content_chars, record_streamed_usage
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import build_trace_metadata, merge_trace_metadata, new_call_id
@@ -470,11 +471,9 @@ class AgentLoop:
             kwargs["tools"] = tool_schemas
             kwargs["tool_choice"] = "auto"
 
-        before_usage_calls = self.pipeline.usage.calls
         # Providers (esp. Gemini OpenAI-compat) may attach ``usage`` to more
-        # than one stream chunk. Keep the latest frame and record it once —
-        # same contract as ``run_labeled_step`` — so ``total_calls`` / tokens
-        # are not inflated by N× for a single completion.
+        # than one stream chunk. Keep the latest frame; it is recorded once
+        # after the stream via ``record_streamed_usage``.
         usage_seen: Any = None
         text_parts: list[str] = []
         tool_acc: dict[int, dict[str, str]] = {}
@@ -557,13 +556,12 @@ class AgentLoop:
 
         await _emit_segments(think_filter.flush())
         text = "".join(text_parts)
-        if usage_seen is not None:
-            self.pipeline.usage.add_from_response(usage_seen)
-        elif self.pipeline.usage.calls == before_usage_calls:
-            self.pipeline.usage.add_estimated(
-                input_chars=sum(_message_content_chars(message) for message in messages),
-                output_chars=output_chars,
-            )
+        record_streamed_usage(
+            self.pipeline.usage,
+            usage_seen,
+            input_chars=sum(message_content_chars(message) for message in messages),
+            output_chars=output_chars,
+        )
 
         tool_calls = [
             {
@@ -643,21 +641,6 @@ class AgentLoop:
                 )
                 return await self.client.chat.completions.create(**kwargs)
             raise
-
-
-def _message_content_chars(message: dict[str, Any]) -> int:
-    content = message.get("content")
-    if isinstance(content, str):
-        return len(content)
-    if isinstance(content, list):
-        total = 0
-        for part in content:
-            if isinstance(part, dict):
-                total += len(str(part.get("text") or ""))
-            elif isinstance(part, str):
-                total += len(part)
-        return total
-    return 0
 
 
 def _last_context_checkpoint_summary(dispatch: DispatchOutcome) -> str:

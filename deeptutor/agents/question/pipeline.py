@@ -56,6 +56,7 @@ from deeptutor.core.agentic import (
 )
 from deeptutor.core.agentic.labels import find_inline_labels
 from deeptutor.core.agentic.tool_dispatch import MAX_PARALLEL_TOOL_CALLS
+from deeptutor.core.agentic.usage import record_streamed_usage
 from deeptutor.core.context import Attachment, UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import (
@@ -1026,10 +1027,7 @@ class QuestionPipeline:
                 reasoning_effort=self.reasoning_effort,
             ),
         }
-        try:
-            kwargs["stream_options"] = {"include_usage": True}
-        except Exception:
-            pass
+        kwargs["stream_options"] = {"include_usage": True}
 
         chunks: list[str] = []
         # Keep the latest usage frame only — some providers emit usage on
@@ -1056,11 +1054,8 @@ class QuestionPipeline:
                     stage=STAGE_EXPLORING,
                     metadata=merge_trace_metadata(meta, {"trace_kind": "llm_chunk"}),
                 )
-            if usage_seen is not None and self.usage is not None:
-                try:
-                    self.usage.add_from_response(usage_seen)
-                except Exception:
-                    logger.debug("usage recording failed for summarizer", exc_info=True)
+            # Zero-char defaults: the summarizer has no estimate fallback.
+            record_streamed_usage(self.usage, usage_seen)
         except Exception as exc:
             logger.warning("Tool summarizer failed for %s: %s", tool_name, exc)
             await stream.progress(
