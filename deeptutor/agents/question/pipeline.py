@@ -1956,28 +1956,6 @@ class _BaseLoopHost:
         # No quiz tool is wired to terminate the loop with content.
         return
 
-    def assistant_message_with_tool_calls(
-        self,
-        *,
-        content: str,
-        tool_calls: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        return {
-            "role": "assistant",
-            "content": content or None,
-            "tool_calls": [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": tc.get("arguments") or "{}",
-                    },
-                }
-                for tc in tool_calls
-            ],
-        }
-
     def protocol_retry_notice(self) -> str:
         return self._pipeline._t(
             "notices.protocol_retry",

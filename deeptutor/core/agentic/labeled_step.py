@@ -49,6 +49,11 @@ from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import merge_trace_metadata
 from deeptutor.services.llm import clean_thinking_tags
 from deeptutor.services.llm.multimodal import should_degrade_to_text, strip_image_parts_inplace
+from deeptutor.services.llm.request_compat import (
+    is_image_input_unsupported,
+    is_stream_options_unsupported,
+    is_tool_schema_unsupported,
+)
 
 # Reasoning models (Qwen, Deepseek-R1 via certain proxies, etc.) sometimes
 # inline a literal ``<think>...</think>`` block in the content stream before
@@ -118,80 +123,6 @@ def _message_content_chars(message: dict[str, Any]) -> int:
     if content is None:
         return 0
     return len(str(content))
-
-
-def _error_text(exc: Exception) -> str:
-    """Best-effort lowercase error body for provider-capability detection."""
-    response = getattr(exc, "response", None)
-    body = (
-        getattr(exc, "body", None)
-        or getattr(exc, "doc", None)
-        or getattr(response, "text", None)
-        or getattr(exc, "message", None)
-        or str(exc)
-    )
-    return str(body).lower()
-
-
-def _is_stream_options_unsupported(exc: Exception) -> bool:
-    """Detect providers that reject OpenAI's ``stream_options`` parameter."""
-    text = _error_text(exc)
-    return any(
-        marker in text
-        for marker in (
-            "stream_options",
-            "stream options",
-            "unknown parameter",
-            "unrecognized request argument",
-            "unsupported parameter",
-            "extra inputs are not permitted",
-            "unexpected keyword",
-        )
-    )
-
-
-def _is_tool_schema_unsupported(exc: Exception) -> bool:
-    """Detect providers that reject native tool/function-calling schemas."""
-    text = _error_text(exc)
-    return any(
-        marker in text
-        for marker in (
-            "tool",
-            "function_declaration",
-            "function declaration",
-            "function_declarations",
-            "tool_choice",
-            "parameters.properties",
-            "404_not_found",
-            "404 not_found",
-        )
-    )
-
-
-def _is_image_input_unsupported(exc: Exception) -> bool:
-    """Detect providers/models that reject image (multimodal) content.
-
-    Covers both explicit "no vision" rejections and the structural errors a
-    text-only OpenAI-compatible model raises when it receives the content
-    *array* the image injection produced (it expected a plain string).
-    Transient errors (rate limit / 5xx) never mention these markers, so they
-    don't trigger the image fallback.
-    """
-    text = _error_text(exc)
-    return any(
-        marker in text
-        for marker in (
-            "image",
-            "vision",
-            "multimodal",
-            "image_url",
-            "content type",
-            "must be a string",
-            "expected a string",
-            "expected string",
-            "invalid type for 'messages",
-        )
-    )
 
 
 async def run_labeled_step(
@@ -475,11 +406,11 @@ async def run_labeled_step(
         try:
             return await client.chat.completions.create(**kwargs)
         except Exception as exc:
-            if auto_stream_options_added and _is_stream_options_unsupported(exc):
+            if auto_stream_options_added and is_stream_options_unsupported(exc):
                 retry_kwargs = dict(kwargs)
                 retry_kwargs.pop("stream_options", None)
                 return await client.chat.completions.create(**retry_kwargs)
-            if tool_schemas and _is_tool_schema_unsupported(exc):
+            if tool_schemas and is_tool_schema_unsupported(exc):
                 await stream.progress(
                     "Provider rejected native tool schemas; retrying without tools.",
                     source=source,
@@ -497,7 +428,7 @@ async def run_labeled_step(
             # it is not in the known-vision allowlist. Strip images in place
             # (so they aren't re-sent on later loop iterations) and retry the
             # turn text-only rather than hard-failing.
-            if _is_image_input_unsupported(exc) and should_degrade_to_text(
+            if is_image_input_unsupported(exc) and should_degrade_to_text(
                 binding, model, kwargs.get("messages") or []
             ):
                 strip_image_parts_inplace(kwargs["messages"])

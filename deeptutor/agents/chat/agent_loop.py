@@ -31,12 +31,18 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from deeptutor.agents._shared.capability_result import emit_capability_result
+from deeptutor.core.agentic.messages import assistant_message_with_tool_calls
 from deeptutor.core.agentic.tool_dispatch import DispatchOutcome
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import build_trace_metadata, merge_trace_metadata, new_call_id
 from deeptutor.services.llm import clean_thinking_tags
 from deeptutor.services.llm.multimodal import should_degrade_to_text, strip_image_parts_inplace
+from deeptutor.services.llm.request_compat import (
+    is_image_input_unsupported,
+    is_stream_options_unsupported,
+    is_tool_schema_unsupported,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from deeptutor.agents.chat.agentic_pipeline import AgenticChatPipeline
@@ -298,7 +304,7 @@ class AgentLoop:
                 # Finish: the text streamed live this round IS the answer.
                 return await self._finalize_finish(final_text)
 
-            messages.append(_assistant_message_with_tool_calls(result.text, result.tool_calls))
+            messages.append(assistant_message_with_tool_calls(result.text, result.tool_calls))
             dispatch = await self.pipeline._dispatch_tool_calls(
                 tool_calls=result.tool_calls,
                 context=self.context,
@@ -588,11 +594,11 @@ class AgentLoop:
         try:
             return await self.client.chat.completions.create(**kwargs)
         except Exception as exc:
-            if "stream_options" in kwargs and _is_stream_options_unsupported(exc):
+            if "stream_options" in kwargs and is_stream_options_unsupported(exc):
                 retry_kwargs = dict(kwargs)
                 retry_kwargs.pop("stream_options", None)
                 return await self.client.chat.completions.create(**retry_kwargs)
-            if kwargs.get("tools") and _is_tool_schema_unsupported(exc):
+            if kwargs.get("tools") and is_tool_schema_unsupported(exc):
                 await self.stream.progress(
                     self.pipeline._t(
                         "notices.tool_schema_fallback",
@@ -610,7 +616,7 @@ class AgentLoop:
                 retry_kwargs.pop("tool_choice", None)
                 self.tool_schemas = None
                 return await self.client.chat.completions.create(**retry_kwargs)
-            if _is_image_input_unsupported(exc) and should_degrade_to_text(
+            if is_image_input_unsupported(exc) and should_degrade_to_text(
                 self.pipeline.binding,
                 self.pipeline.model,
                 kwargs.get("messages") or [],
@@ -630,27 +636,6 @@ class AgentLoop:
                 )
                 return await self.client.chat.completions.create(**kwargs)
             raise
-
-
-def _assistant_message_with_tool_calls(
-    content: str,
-    tool_calls: list[dict[str, Any]],
-) -> dict[str, Any]:
-    return {
-        "role": "assistant",
-        "content": content or None,
-        "tool_calls": [
-            {
-                "id": tc["id"],
-                "type": "function",
-                "function": {
-                    "name": tc["name"],
-                    "arguments": tc.get("arguments") or "{}",
-                },
-            }
-            for tc in tool_calls
-        ],
-    }
 
 
 def _message_content_chars(message: dict[str, Any]) -> int:
@@ -680,69 +665,6 @@ def _last_context_checkpoint_summary(dispatch: DispatchOutcome) -> str:
         if candidate:
             summary = candidate
     return summary
-
-
-def _error_text(exc: Exception) -> str:
-    response = getattr(exc, "response", None)
-    body = (
-        getattr(exc, "body", None)
-        or getattr(exc, "doc", None)
-        or getattr(response, "text", None)
-        or getattr(exc, "message", None)
-        or str(exc)
-    )
-    return str(body).lower()
-
-
-def _is_stream_options_unsupported(exc: Exception) -> bool:
-    text = _error_text(exc)
-    return any(
-        marker in text
-        for marker in (
-            "stream_options",
-            "stream options",
-            "unknown parameter",
-            "unrecognized request argument",
-            "unsupported parameter",
-            "extra inputs are not permitted",
-            "unexpected keyword",
-        )
-    )
-
-
-def _is_tool_schema_unsupported(exc: Exception) -> bool:
-    text = _error_text(exc)
-    return any(
-        marker in text
-        for marker in (
-            "tool",
-            "function_declaration",
-            "function declaration",
-            "function_declarations",
-            "tool_choice",
-            "parameters.properties",
-            "404_not_found",
-            "404 not_found",
-        )
-    )
-
-
-def _is_image_input_unsupported(exc: Exception) -> bool:
-    text = _error_text(exc)
-    return any(
-        marker in text
-        for marker in (
-            "image",
-            "vision",
-            "multimodal",
-            "image_url",
-            "content type",
-            "must be a string",
-            "expected a string",
-            "expected string",
-            "invalid type for 'messages",
-        )
-    )
 
 
 __all__ = [

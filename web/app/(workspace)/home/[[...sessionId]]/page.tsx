@@ -1407,6 +1407,31 @@ export default function ChatPage() {
     [fileToAttachment, filterAndReportFiles],
   );
 
+  // Connected subagents are stored as ``type: subagent`` KBs. Derive the
+  // selected one before the send callback so the callback can depend on the
+  // current selection instead of capturing an undeclared-later value.
+  const agentNameSet = useMemo(
+    () =>
+      new Set(
+        knowledgeBases
+          .filter((kb) => kb.metadata?.type === "subagent")
+          .map((kb) => kb.name),
+      ),
+    [knowledgeBases],
+  );
+  const selectedAgent = useMemo(
+    () => state.knowledgeBases.find((name) => agentNameSet.has(name)) ?? null,
+    [state.knowledgeBases, agentNameSet],
+  );
+  // How many times DeepTutor may consult the selected agent this turn. Seeded
+  // from the configured default; the composer's stepper overrides it per turn.
+  const [subagentBudget, setSubagentBudget] = useState<number | null>(null);
+  useEffect(() => {
+    void getSubagentSettings()
+      .then((settings) => setSubagentBudget(settings.consult_budget))
+      .catch(() => undefined);
+  }, []);
+
   const handleSend = useCallback(
     async (content: string) => {
       if (
@@ -1508,6 +1533,7 @@ export default function ChatPage() {
       quizPdf,
       researchConfig,
       researchValidation,
+      selectedAgent,
       selectedHistorySessions.length,
       selectedAgentSessions.length,
       selectedMemoryFiles.length,
@@ -1517,6 +1543,7 @@ export default function ChatPage() {
       sendMessage,
       shouldAutoScrollRef,
       state.isStreaming,
+      subagentBudget,
       t,
       visualizeConfig,
     ],
@@ -1582,18 +1609,8 @@ export default function ChatPage() {
     [setKBs, state.knowledgeBases],
   );
 
-  // Connected subagents are stored as ``type: subagent`` KBs (so selection
-  // rides the same knowledge_bases path), but in the composer they get their
-  // own single-select Bot chip — distinct from real knowledge bases.
-  const agentNameSet = useMemo(
-    () =>
-      new Set(
-        knowledgeBases
-          .filter((kb) => kb.metadata?.type === "subagent")
-          .map((kb) => kb.name),
-      ),
-    [knowledgeBases],
-  );
+  // Real knowledge bases and connected subagents render as separate composer
+  // controls even though both travel through the knowledge_bases request path.
   const kbOptions = useMemo(
     () => knowledgeBases.filter((kb) => kb.metadata?.type !== "subagent"),
     [knowledgeBases],
@@ -1607,10 +1624,6 @@ export default function ChatPage() {
   );
   const selectedKbOnly = useMemo(
     () => state.knowledgeBases.filter((n) => !agentNameSet.has(n)),
-    [state.knowledgeBases, agentNameSet],
-  );
-  const selectedAgent = useMemo(
-    () => state.knowledgeBases.find((n) => agentNameSet.has(n)) ?? null,
     [state.knowledgeBases, agentNameSet],
   );
   const handleSelectAgent = useCallback(
@@ -1632,15 +1645,6 @@ export default function ChatPage() {
     agentPreselectDoneRef.current = true;
     handleSelectAgent(name);
   }, [agentNameSet, handleSelectAgent]);
-  // How many times DeepTutor may consult the selected agent this turn. Seeded
-  // from the configured default; the composer's stepper overrides it per turn
-  // (sent in the request config, read by the subagent capability).
-  const [subagentBudget, setSubagentBudget] = useState<number | null>(null);
-  useEffect(() => {
-    void getSubagentSettings()
-      .then((s) => setSubagentBudget(s.consult_budget))
-      .catch(() => undefined);
-  }, []);
   const handleSelectNotebookPicker = useCallback(() => {
     setShowNotebookPicker(true);
   }, []);
