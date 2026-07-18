@@ -15,6 +15,7 @@ from pathlib import Path
 import shutil
 import stat
 import sys
+import tempfile
 from typing import Any
 
 from deeptutor.knowledge.kb_types import (
@@ -255,6 +256,26 @@ def _reconcile_embedding_flags(knowledge_bases: dict, base_dir: Path | None = No
             changed = True
 
     return changed
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    """Write JSON via a same-directory temp file and ``os.replace`` so
+    readers only ever see the previous or the new file, never a partial
+    write, and a crash mid-write cannot leave ``path`` truncated.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fp:
+            json.dump(payload, fp, indent=2, ensure_ascii=False)
+            fp.flush()
+            os.fsync(fp.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 class KnowledgeBaseManager:
@@ -1667,6 +1688,7 @@ class KnowledgeBaseManager:
 
                 folder["synced_files"] = file_states
                 folder["file_count"] = len(file_states)
+                _write_json_atomic(metadata_file, metadata)
                 break
 
 
