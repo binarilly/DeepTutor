@@ -205,9 +205,19 @@ def test_registered_cloud_openai_compat_providers_enable_native_tools() -> None:
         assert can_use_native_tool_calling(binding=binding, model=None) is True, binding
 
 
-def test_local_and_oauth_backends_stay_opted_out_of_native_tools() -> None:
-    # Local OpenAI-compatible servers (model-dependent, unreliable tool support)
-    # and the OAuth CLI backends keep native tool schemas disabled.
+def test_openai_codex_backend_can_use_native_tool_calling() -> None:
+    assert (
+        can_use_native_tool_calling(
+            binding="openai_codex",
+            model="openai-codex/gpt-5.5",
+        )
+        is True
+    )
+
+
+def test_local_and_github_copilot_backends_stay_opted_out_of_native_tools() -> None:
+    # Local OpenAI-compatible servers have model-dependent, unreliable tool support.
+    # GitHub Copilot remains opted out until its native tool path is validated.
     for binding in (
         "ollama",
         "vllm",
@@ -215,7 +225,6 @@ def test_local_and_oauth_backends_stay_opted_out_of_native_tools() -> None:
         "llama_cpp",
         "lemonade",
         "ovms",
-        "openai_codex",
         "github_copilot",
     ):
         assert can_use_native_tool_calling(binding=binding, model=None) is False, binding
