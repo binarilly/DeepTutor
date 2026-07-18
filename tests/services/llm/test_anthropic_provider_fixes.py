@@ -10,6 +10,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
+# Constructing AnthropicProvider imports the optional `anthropic` SDK ([cli]
+# extra) — skip cleanly where it isn't installed (e.g. the CI python-tests job).
+pytest.importorskip("anthropic")
+
 from deeptutor.services.llm.provider_core.anthropic_provider import AnthropicProvider
 
 
@@ -42,13 +48,21 @@ def _kwargs(provider: AnthropicProvider, model: str) -> dict[str, Any]:
 
 def test_temperature_omitted_for_effort_based_models() -> None:
     provider = _provider()
-    for model in ("claude-opus-4-8", "claude-sonnet-5", "claude-opus-4-7"):
+    for model in ("claude-opus-4-8", "claude-sonnet-5", "claude-opus-4-7", "claude-fable-5"):
         assert "temperature" not in _kwargs(provider, model), model
 
 
-def test_temperature_kept_for_older_models() -> None:
+def test_temperature_kept_for_models_that_accept_it() -> None:
     provider = _provider()
-    for model in ("claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-1"):
+    # Opus 4.6 / Sonnet 4.6 still accept temperature — omitting it there
+    # would silently drop the user's configured setting.
+    for model in (
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5-20250929",
+        "claude-haiku-4-5-20251001",
+        "claude-opus-4-1",
+    ):
         assert "temperature" in _kwargs(provider, model), model
 
 

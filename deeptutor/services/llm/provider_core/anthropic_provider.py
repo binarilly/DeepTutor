@@ -19,6 +19,18 @@ from deeptutor.services.llm.provider_core.base import LLMProvider, LLMResponse, 
 
 _ALNUM = string.ascii_letters + string.digits
 
+# Model families that REJECT the `temperature` parameter with a 400 — the
+# effort-based generation from Opus 4.7 onward. Opus 4.6 and Sonnet 4.6 still
+# ACCEPT temperature; adding them here would silently drop the user's setting.
+# Extend as new families ship (a capability lookup is the longer-term fix).
+_TEMPERATURE_REJECTING_FAMILIES: tuple[str, ...] = (
+    "opus-4-7",
+    "opus-4-8",
+    "sonnet-5",
+    "fable-5",
+    "mythos-5",
+)
+
 
 def _gen_tool_id() -> str:
     return "toolu_" + "".join(secrets.choice(_ALNUM) for _ in range(22))
@@ -361,22 +373,7 @@ class AnthropicProvider(LLMProvider):
 
         max_tokens = max(1, max_tokens)
         thinking_enabled = bool(reasoning_effort)
-        # Newer effort-based Claude models reject the `temperature` parameter.
-        # Extend this list as new families ship (a capability lookup would be
-        # the longer-term fix).
-        omit_temperature = any(
-            family in model_name
-            for family in (
-                "opus-4-6",
-                "opus-4-7",
-                "opus-4-8",
-                "sonnet-4-6",
-                "sonnet-5",
-                "opus-5",
-                "fable-5",
-                "haiku-5",
-            )
-        )
+        omit_temperature = any(family in model_name for family in _TEMPERATURE_REJECTING_FAMILIES)
 
         kwargs: dict[str, Any] = {
             "model": model_name,
