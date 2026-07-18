@@ -196,6 +196,31 @@ def _build_unique_task_id(task_type: str, task_key_prefix: str) -> str:
     return task_manager.generate_task_id(task_type, task_key)
 
 
+def _mark_kb_queued_for_processing(
+    manager: KnowledgeBaseManager, kb_name: str, task_id: str, message: str
+) -> None:
+    """Flip an existing KB to ``processing`` before its background task is dispatched.
+
+    ``run_upload_processing_task`` only writes status once it starts running;
+    without this pre-dispatch update the KB keeps reporting ``ready`` between
+    the accepted upload/sync response and the task's first progress write.
+    Mirrors the pre-dispatch update ``create_knowledge_base`` and reindex
+    already do. ``stage`` must be a member of the frontend's
+    ``LIVE_PROGRESS_STAGES`` set (web/lib/knowledge-helpers.ts).
+    """
+    manager.update_kb_status(
+        name=kb_name,
+        status="processing",
+        progress={
+            "stage": "starting",
+            "message": message,
+            "percent": 0,
+            "task_id": task_id,
+            "timestamp": datetime.now().isoformat(),
+        },
+    )
+
+
 def _save_zip_archive(
     file: UploadFile,
     sanitized_filename: str,
@@ -2075,16 +2100,11 @@ async def upload_files(
 
         logger.info(f"Uploading {len(uploaded_files)} files to KB '{kb_name}'")
 
-        manager.update_kb_status(
-            name=kb_name,
-            status="processing",
-            progress={
-                "stage": "processing",
-                "message": f"Processing {len(uploaded_files)} uploaded file(s)...",
-                "percent": 0,
-                "task_id": task_id,
-                "timestamp": datetime.now().isoformat(),
-            },
+        _mark_kb_queued_for_processing(
+            manager,
+            kb_name,
+            task_id,
+            f"Processing {len(uploaded_files)} uploaded file(s)...",
         )
 
         background_tasks.add_task(
@@ -2757,16 +2777,11 @@ async def sync_folder(kb_name: str, folder_id: str, background_tasks: Background
         # It is updated in run_upload_processing_task only after successful processing.
         # This prevents marking files as synced if processing fails (race condition fix).
 
-        manager.update_kb_status(
-            name=kb_name,
-            status="processing",
-            progress={
-                "stage": "processing",
-                "message": f"Syncing {len(files_to_process)} file(s) from linked folder...",
-                "percent": 0,
-                "task_id": task_id,
-                "timestamp": datetime.now().isoformat(),
-            },
+        _mark_kb_queued_for_processing(
+            manager,
+            kb_name,
+            task_id,
+            f"Syncing {len(files_to_process)} file(s) from linked folder...",
         )
 
         # Add background task to process files
