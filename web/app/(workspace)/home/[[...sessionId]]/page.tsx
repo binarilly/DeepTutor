@@ -66,12 +66,8 @@ import {
   extractBase64FromDataUrl,
   readFileAsDataUrl,
 } from "@/lib/file-attachments";
-import {
-  classifyFile,
-  isSvgFilename,
-  MAX_ATTACHMENT_BYTES,
-  MAX_TOTAL_ATTACHMENT_BYTES,
-} from "@/lib/doc-attachments";
+import { classifyFile, isSvgFilename } from "@/lib/doc-attachments";
+import { useAttachmentLimits } from "@/lib/attachment-limits";
 import { useChatAutoScroll } from "@/hooks/useChatAutoScroll";
 import { useMeasuredHeight } from "@/hooks/useMeasuredHeight";
 import {
@@ -367,6 +363,7 @@ export default function ChatPage() {
     null,
   );
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const attachmentLimits = useAttachmentLimits();
   const [dragging, setDragging] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [previewSource, setPreviewSource] = useState<FilePreviewSource | null>(
@@ -1181,11 +1178,11 @@ export default function ChatPage() {
           rejected.push({ name: f.name, reason: "unsupported" });
           continue;
         }
-        if (f.size > MAX_ATTACHMENT_BYTES) {
+        if (f.size > attachmentLimits.maxFileBytes) {
           rejected.push({ name: f.name, reason: "too_large" });
           continue;
         }
-        if (runningTotal + f.size > MAX_TOTAL_ATTACHMENT_BYTES) {
+        if (runningTotal + f.size > attachmentLimits.maxTotalBytes) {
           rejected.push({ name: f.name, reason: "quota" });
           break;
         }
@@ -1206,7 +1203,7 @@ export default function ChatPage() {
       }
       return accepted;
     },
-    [attachments, showAttachmentError, t],
+    [attachments, attachmentLimits, showAttachmentError, t],
   );
 
   const handlePaste = useCallback(

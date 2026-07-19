@@ -23,9 +23,8 @@ import {
   ATTACHMENT_ACCEPT,
   classifyFile,
   formatBytes,
-  MAX_ATTACHMENT_BYTES,
-  MAX_TOTAL_ATTACHMENT_BYTES,
 } from "@/lib/doc-attachments";
+import { useAttachmentLimits } from "@/lib/attachment-limits";
 import {
   extractBase64FromDataUrl,
   readFileAsDataUrl,
@@ -109,6 +108,7 @@ export default function BookChatPanel({
   const [busy, setBusy] = useState(false);
   const [width, setWidth] = useState(360);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const attachmentLimits = useAttachmentLimits();
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const clientRef = useRef<UnifiedWSClient | null>(null);
@@ -323,13 +323,13 @@ export default function BookChatPanel({
         setAttachmentError(t("Unsupported file type."));
         continue;
       }
-      if (file.size > MAX_ATTACHMENT_BYTES) {
+      if (file.size > attachmentLimits.maxFileBytes) {
         setAttachmentError(
           t("File is too large ({{size}}).", { size: formatBytes(file.size) }),
         );
         continue;
       }
-      if (nextTotal + file.size > MAX_TOTAL_ATTACHMENT_BYTES) {
+      if (nextTotal + file.size > attachmentLimits.maxTotalBytes) {
         setAttachmentError(t("Attachments exceed the total upload limit."));
         continue;
       }
