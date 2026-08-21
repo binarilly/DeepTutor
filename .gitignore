@@ -131,7 +131,6 @@ cache/
 .cache/
 .ruff_cache
 .playwright-cli/
-.codegraph/
 # Written by `npm run audit` (the playwright ui-audit project).
 web/test-results/
 web/playwright-report/
