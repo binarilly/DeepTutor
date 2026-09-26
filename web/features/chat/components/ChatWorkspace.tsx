@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import { useChatRouteSession } from "@/features/chat/controllers/useChatRouteSession";
+import { waitForReplyLanguageSave } from "@/features/chat/controllers/reply-language-save";
 
 import {
   GraduationCap,
@@ -50,10 +51,10 @@ import StarterSuggestions from "@/components/chat/home/StarterSuggestions";
 // render. The heavy renderers inside still load lazily.
 import FilePreviewDrawer from "@/components/chat/preview/FilePreviewDrawer";
 import { buildSessionActivity } from "@/components/chat/home/SessionActivityPanel";
-import Tooltip from "@/components/common/Tooltip";
+import Tooltip from "@/shared/ui/Tooltip";
 import SessionViewerPanel, {
   type SessionViewerPanelHandle,
-} from "@/components/chat/home/SessionViewerPanel";
+} from "@/components/chat/home/LazySessionViewerPanel";
 import {
   QuizFollowupProvider,
   useQuizFollowupController,
@@ -70,10 +71,13 @@ import {
   type MessageRequestSnapshot,
 } from "@/features/chat/ChatStateAdapter";
 import { useAppShell } from "@/context/AppShellContext";
+import { readStoredResponseLanguage } from "@/context/app-shell-storage";
+import { RESPONSE_LANGUAGE_OPTIONS } from "@/features/settings/store";
 
 import { WATCHING_ASK_EVENT } from "@/components/watching/WatchingPane";
 import type { FilePreviewSource } from "@/components/chat/preview/previewerFor";
 import type { LLMSelection, StreamEvent } from "@/features/chat/model/protocol";
+import { selectAttachmentProcessing } from "@/features/chat/selectors/attachment-processing";
 import {
   extractBase64FromDataUrl,
   readFileAsDataUrl,
@@ -277,10 +281,12 @@ export default function ChatWorkspace({
     setLLMSelection,
     setPersonaSelection,
     setResourceSelection,
+    setReplyLanguageOverride,
     sendMessage,
     cancelStreamingTurn,
     submitUserReply,
     regenerateLastMessage,
+    resendLastMessage,
     deleteTurn,
     editMessage,
     switchBranch,
@@ -294,6 +300,25 @@ export default function ChatWorkspace({
   } = useChatStateAdapter();
 
   const entrySessionId = useRef(state.sessionId);
+  const [replyLanguageSavingKey, setReplyLanguageSavingKey] = useState<string | null>(null);
+  const replyLanguageSaveRef = useRef<{ key: string; pending: Promise<void> } | null>(null);
+  const handleReplyLanguageChange = useCallback((value: string) => {
+    const language = value || null;
+    const key = state.sessionKey;
+    const pending = setReplyLanguageOverride(language);
+    replyLanguageSaveRef.current = { key, pending };
+    setReplyLanguageSavingKey(key);
+    void pending
+      .catch((error: unknown) => {
+        notify(error instanceof Error ? error.message : t("Action failed"));
+      })
+      .finally(() => {
+        if (replyLanguageSaveRef.current?.pending === pending) {
+          replyLanguageSaveRef.current = null;
+          setReplyLanguageSavingKey(null);
+        }
+      });
+  }, [setReplyLanguageOverride, state.sessionKey, t]);
 
   const resourceReuse = useResourceReusePolicy(state.sessionKey || "draft", state.messages[0]?.id);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
@@ -751,6 +776,10 @@ export default function ChatWorkspace({
   // "done" while nothing visibly changes.
   useSetupSync(state.messages);
   const hasMessages = state.messages.length > 0;
+  const attachmentProcessing = useMemo(
+    () => selectAttachmentProcessing(state.messages, state.isStreaming),
+    [state.isStreaming, state.messages],
+  );
   // A line the user might type next, written by the task model against the
   // conversation's own tail — general prediction, not a question to ask,
   // unlike the mastery/reading composers' hint. Empty conversations already
@@ -1859,6 +1888,15 @@ export default function ChatWorkspace({
 
   const handleSend = useCallback(
     async (content: string) => {
+      // An existing session saves its selector before the next turn starts.
+      // The composer may be used immediately after changing the dropdown.
+      if (!(await waitForReplyLanguageSave(
+        replyLanguageSaveRef.current?.key === state.sessionKey
+          ? replyLanguageSaveRef.current.pending
+          : null,
+        content,
+        (draft) => prefillInputRef.current?.(draft),
+      ))) return;
       // A turn paused on a question: what the user typed is their answer, not
       // a new message. Routing it here means the card is one way to answer,
       // not the only one — and a card that never rendered no longer strands
@@ -2038,6 +2076,7 @@ export default function ChatWorkspace({
       sendMessage,
       shouldAutoScrollRef,
       state.isStreaming,
+      state.sessionKey,
       subagentBudget,
       selectedPartnerGroup,
       selectedPartner,
@@ -2143,6 +2182,10 @@ export default function ChatWorkspace({
   const handleRegenerateMessage = useCallback(() => {
     regenerateLastMessage();
   }, [regenerateLastMessage]);
+
+  const handleResendMessage = useCallback(() => {
+    resendLastMessage();
+  }, [resendLastMessage]);
 
   const handleToggleKB = useCallback(
     (name: string) => {
@@ -2574,6 +2617,8 @@ export default function ChatWorkspace({
                         language={state.language}
                         onCopyAssistantMessage={copyAssistantMessage}
                         onRegenerateMessage={handleRegenerateMessage}
+                        canResendLastTurn={state.lastTurnFailed}
+                        onResendLastTurn={handleResendMessage}
                         onConfirmOutline={handleConfirmOutline}
                         onPreviewAttachment={handlePreviewMessageAttachment}
                         onOpenConsultation={(events) => {
@@ -2664,6 +2709,7 @@ export default function ChatWorkspace({
                 hasMessages={hasMessages}
                 attachments={attachments}
                 attachmentError={attachmentError}
+                attachmentProcessing={attachmentProcessing}
                 activeCap={activeCap}
                 knowledgeBases={kbOptions}
                 connectedAgents={agentOptions}
@@ -2723,6 +2769,13 @@ export default function ChatWorkspace({
                 onPersonaSelectionChange={setPersonaSelection}
                 personaSelectorOpen={personaSelectorOpen}
                 onPersonaSelectorOpenChange={setPersonaSelectorOpen}
+                replyLanguageOverride={state.replyLanguageOverride}
+                replyLanguageOptions={RESPONSE_LANGUAGE_OPTIONS}
+                replyLanguageDefaultLabel={RESPONSE_LANGUAGE_OPTIONS.find(
+                  (option) => option.value === readStoredResponseLanguage(),
+                )?.label ?? "English"}
+                replyLanguageDisabled={replyLanguageSavingKey === state.sessionKey || state.isStreaming}
+                onReplyLanguageChange={handleReplyLanguageChange}
                 resourceCatalog={resourceCatalog}
                 resourceSelection={state.resourceSelection}
                 onResourceSelectionChange={setResourceSelection}
@@ -2926,9 +2979,9 @@ function SubagentTabWatcher({
 /**
  * Header action button that auto-collapses to icon-only when the chat
  * column gets squeezed (Viewer panel open, narrow viewport, etc.). The
- * label stays as the button's `title` so hovering an icon still reveals
- * what it does. Optional `active` flag paints the button with a primary
- * tint, used by the panel-toggle buttons to surface their on/off state.
+ * The shared tooltip keeps the full hint available on pointer, keyboard and
+ * touch. Optional `active` paints the button with a primary tint, used by the
+ * panel-toggle buttons to surface their on/off state.
  */
 // Claude-style icon-only header action: bare 16px glyph, function revealed
 // by an instant tooltip; active state gets a primary tint.
